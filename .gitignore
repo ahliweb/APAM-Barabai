@@ -8,3 +8,4 @@ node_modules
 .expo
 dist
 MLITE.postman_collection.json
+.env
