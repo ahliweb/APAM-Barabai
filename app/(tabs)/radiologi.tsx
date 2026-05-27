@@ -1,46 +1,119 @@
 import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, TextInput } from 'react-native';
 import { router } from 'expo-router';
 import { ChevronLeft, Search, Radiation, CreditCard, Layers } from 'lucide-react-native';
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { api } from '@/lib/api';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 
 export default function RadiologiScreen() {
+  const perPage = 20;
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState([]);
+  const [data, setData] = useState<any[]>([]);
   const [search, setSearch] = useState('');
-  const [filteredData, setFilteredData] = useState([]);
+  const [filteredData, setFilteredData] = useState<any[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    fetchData();
+    fetchPage(1, { reset: true, query: '' });
   }, []);
 
-  const fetchData = async () => {
-    setLoading(true);
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    searchDebounceRef.current = setTimeout(() => {
+      fetchPage(1, { reset: true, query: search });
+    }, 350);
+
+    return () => {
+      if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    };
+  }, [search]);
+
+  const fetchPage = async (nextPage: number, options: { reset: boolean; query: string }) => {
+    const query = (options.query || '').trim();
+    if (options.reset) {
+      setLoading(true);
+      setHasMore(true);
+      setPage(1);
+    } else {
+      setLoadingMore(true);
+    }
+
     try {
-      const response = await api.master.list('jns_perawatan_radiologi');
-      const list = response.data.data || [];
-      setData(list);
-      setFilteredData(list);
+      const params: any = {
+        page: nextPage,
+        per_page: perPage,
+      };
+      if (query) params.s = query;
+
+      const response = await api.master.list('jns_perawatan_radiologi', params);
+      const rows = (response.data as any)?.data ?? (response.data as any)?.data?.data ?? [];
+      const meta = (response.data as any)?.meta ?? {};
+      const total = typeof meta?.total === 'number' ? meta.total : undefined;
+
+      const nextRows = Array.isArray(rows) ? rows : [];
+      setData((prev) => {
+        const base = options.reset ? [] : (Array.isArray(prev) ? prev : []);
+        const merged = [...base, ...nextRows];
+        const seen = new Set<string>();
+        return merged.filter((item: any) => {
+          const key = String(item?.kd_jenis_prw ?? '');
+          if (!key) return true;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      });
+
+      setPage(nextPage);
+      if (typeof total === 'number') {
+        setHasMore(nextPage * perPage < total);
+      } else {
+        setHasMore(nextRows.length === perPage);
+      }
     } catch (error) {
       console.error('Error fetching jns_perawatan_radiologi:', error);
+      if (options.reset) {
+        setData([]);
+      }
     } finally {
       setLoading(false);
+      setLoadingMore(false);
+      setRefreshing(false);
     }
   };
 
-  const handleSearch = (text: string) => {
-    setSearch(text);
-    if (!text) {
+  useEffect(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) {
       setFilteredData(data);
       return;
     }
-    const filtered = data.filter((item: any) => 
-      item.nm_perawatan.toLowerCase().includes(text.toLowerCase()) ||
-      item.kd_jenis_prw.toLowerCase().includes(text.toLowerCase())
+
+    setFilteredData(
+      (Array.isArray(data) ? data : []).filter((item: any) =>
+        String(item?.nm_perawatan || '').toLowerCase().includes(keyword) ||
+        String(item?.kd_jenis_prw || '').toLowerCase().includes(keyword)
+      )
     );
-    setFilteredData(filtered);
+  }, [data, search]);
+
+  const handleSearch = (text: string) => {
+    setSearch(text);
+  };
+
+  const loadMore = () => {
+    if (loading || loadingMore || !hasMore) return;
+    fetchPage(page + 1, { reset: false, query: search });
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchPage(1, { reset: true, query: search });
   };
 
   const formatCurrency = (amount: any) => {
@@ -114,6 +187,18 @@ export default function RadiologiScreen() {
           keyExtractor={(item: any, index) => item.kd_jenis_prw?.toString() || index.toString()}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.footerLoader}>
+                <ActivityIndicator size="small" color="#62B986" />
+                <Text style={styles.footerLoaderText}>Memuat data...</Text>
+              </View>
+            ) : null
+          }
           ListEmptyComponent={() => (
             <View style={styles.centerContainer}>
               <Text style={styles.emptyText}>Data tidak ditemukan.</Text>
@@ -194,6 +279,18 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
     paddingBottom: 40,
+  },
+  footerLoader: {
+    paddingTop: 4,
+    paddingBottom: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerLoaderText: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
   },
   card: {
     backgroundColor: '#FFF',

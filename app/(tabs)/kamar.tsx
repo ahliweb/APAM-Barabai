@@ -7,58 +7,113 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 
 export default function KamarScreen() {
+  const perPage = 20;
   const [loading, setLoading] = useState(true);
-  const [data, setData] = useState([]);
+  const [data, setData] = useState<any[]>([]);
   const [bangsal, setBangsal] = useState<any>({});
   const [search, setSearch] = useState('');
-  const [filteredData, setFilteredData] = useState([]);
+  const [filteredData, setFilteredData] = useState<any[]>([]);
+  const [page, setPage] = useState(1);
+  const [hasMore, setHasMore] = useState(true);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
 
   useEffect(() => {
-    fetchData();
+    fetchBangsal();
+    fetchPage(1, true);
   }, []);
 
-  const fetchData = async () => {
-    setLoading(true);
+  const fetchBangsal = async () => {
     try {
-      const [kamarRes, bangsalRes] = await Promise.all([
-        api.master.list('kamar'),
-        api.master.list('bangsal')
-      ]);
-
-      const rooms = kamarRes.data.data || [];
-      const wards = bangsalRes.data.data || [];
+      const bangsalRes = await api.master.list('bangsal', { page: 1, per_page: 500 });
+      const wards = (bangsalRes.data as any)?.data || [];
 
       // Create mapping for kd_bangsal to nm_bangsal
       const wardMap: any = {};
-      wards.forEach((w: any) => {
+      (Array.isArray(wards) ? wards : []).forEach((w: any) => {
         wardMap[w.kd_bangsal] = w.nm_bangsal;
       });
 
       setBangsal(wardMap);
-      setData(rooms);
-      setFilteredData(rooms);
     } catch (error) {
-      console.error('Error fetching kamar or bangsal:', error);
-    } finally {
-      setLoading(false);
+      console.error('Error fetching bangsal:', error);
     }
   };
 
-  const handleSearch = (text: string) => {
-    setSearch(text);
-    if (!text) {
+  const fetchPage = async (nextPage: number, reset: boolean) => {
+    if (reset) {
+      setLoading(true);
+      setHasMore(true);
+      setPage(1);
+    } else {
+      setLoadingMore(true);
+    }
+
+    try {
+      const kamarRes = await api.master.list('kamar', { page: nextPage, per_page: perPage });
+      const rows = (kamarRes.data as any)?.data ?? [];
+      const meta = (kamarRes.data as any)?.meta ?? {};
+      const total = typeof meta?.total === 'number' ? meta.total : undefined;
+
+      const nextRows = Array.isArray(rows) ? rows : [];
+      setData((prev) => {
+        const base = reset ? [] : (Array.isArray(prev) ? prev : []);
+        const merged = [...base, ...nextRows];
+        const seen = new Set<string>();
+        return merged.filter((item: any) => {
+          const key = String(item?.kd_kamar ?? '');
+          if (!key) return true;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+      });
+
+      setPage(nextPage);
+      if (typeof total === 'number') {
+        setHasMore(nextPage * perPage < total);
+      } else {
+        setHasMore(nextRows.length === perPage);
+      }
+    } catch (error) {
+      console.error('Error fetching kamar:', error);
+      if (reset) setData([]);
+    } finally {
+      setLoading(false);
+      setLoadingMore(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    const keyword = search.trim().toLowerCase();
+    if (!keyword) {
       setFilteredData(data);
       return;
     }
-    const filtered = data.filter((item: any) => {
+    const next = (Array.isArray(data) ? data : []).filter((item: any) => {
       const wardName = bangsal[item.kd_bangsal] || item.kd_bangsal || '';
       return (
-        item.kd_kamar.toLowerCase().includes(text.toLowerCase()) ||
-        wardName.toLowerCase().includes(text.toLowerCase()) ||
-        item.kelas.toLowerCase().includes(text.toLowerCase())
+        String(item?.kd_kamar || '').toLowerCase().includes(keyword) ||
+        String(wardName || '').toLowerCase().includes(keyword) ||
+        String(item?.kelas || '').toLowerCase().includes(keyword)
       );
     });
-    setFilteredData(filtered);
+    setFilteredData(next);
+  }, [data, bangsal, search]);
+
+  const handleSearch = (text: string) => {
+    setSearch(text);
+  };
+
+  const loadMore = () => {
+    if (loading || loadingMore || !hasMore) return;
+    fetchPage(page + 1, false);
+  };
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchPage(1, true);
   };
 
   const formatCurrency = (amount: any) => {
@@ -144,6 +199,18 @@ export default function KamarScreen() {
           keyExtractor={(item: any, index) => (item.kd_kamar || index).toString()}
           contentContainerStyle={styles.listContent}
           showsVerticalScrollIndicator={false}
+          onEndReached={loadMore}
+          onEndReachedThreshold={0.4}
+          refreshing={refreshing}
+          onRefresh={onRefresh}
+          ListFooterComponent={
+            loadingMore ? (
+              <View style={styles.footerLoader}>
+                <ActivityIndicator size="small" color="#62B986" />
+                <Text style={styles.footerLoaderText}>Memuat data...</Text>
+              </View>
+            ) : null
+          }
           ListEmptyComponent={() => (
             <View style={styles.centerContainer}>
               <Text style={styles.emptyText}>Data tidak ditemukan.</Text>
@@ -224,6 +291,18 @@ const styles = StyleSheet.create({
   listContent: {
     padding: 16,
     paddingBottom: 40,
+  },
+  footerLoader: {
+    paddingTop: 4,
+    paddingBottom: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerLoaderText: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
   },
   card: {
     backgroundColor: '#FFF',
