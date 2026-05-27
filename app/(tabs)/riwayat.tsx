@@ -1,9 +1,10 @@
-import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, FlatList, ActivityIndicator, Image, Platform } from 'react-native';
 import { useEffect, useState } from 'react';
 import { useRouter } from 'expo-router';
 import { useAuth } from '@/contexts/AuthContext';
 import { ChevronLeft, Calendar, User, MapPin, Activity, Clock, DoorOpen, BedDouble, ArrowRight, CheckCircle2 } from 'lucide-react-native';
 import { api } from '@/lib/api';
+import { isRawatInapEnabled } from '@/lib/env';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 
@@ -12,10 +13,23 @@ export default function RiwayatScreen() {
   const router = useRouter();
   const [activeTab, setActiveTab] = useState('ralan'); // 'ralan' or 'ranap'
   const [loading, setLoading] = useState(true);
+  const ralanPerPage = 10;
+  const ranapPerPage = 10;
 
   // Data States
-  const [history, setHistory] = useState([]);
-  const [inpatientHistory, setInpatientHistory] = useState([]);
+  const [history, setHistory] = useState<any[]>([]);
+  const [inpatientHistory, setInpatientHistory] = useState<any[]>([]);
+  const [ralanPage, setRalanPage] = useState(1);
+  const [ralanLastPage, setRalanLastPage] = useState(1);
+  const [ralanTotal, setRalanTotal] = useState(0);
+  const [ralanHasMore, setRalanHasMore] = useState(false);
+  const [ralanLoadingMore, setRalanLoadingMore] = useState(false);
+  const [ranapPage, setRanapPage] = useState(1);
+  const [ranapLastPage, setRanapLastPage] = useState(1);
+  const [ranapTotal, setRanapTotal] = useState(0);
+  const [ranapHasMore, setRanapHasMore] = useState(false);
+  const [ranapLoadingMore, setRanapLoadingMore] = useState(false);
+  const [patientNoRawatKeys, setPatientNoRawatKeys] = useState<string[]>([]);
 
   // Mapping States
   const [doctorMap, setDoctorMap] = useState<any>({});
@@ -34,17 +48,55 @@ export default function RiwayatScreen() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [historyRes, dokterRes, poliRes, ranapRes, kamarRes, bangsalRes] = await Promise.all([
-        api.master.list('reg_periksa', { s: session?.no_rkm_medis, col: 'no_rkm_medis' }),
+      const noRkmMedis = session?.no_rkm_medis;
+      const allowRanap = isRawatInapEnabled(Platform.OS);
+      if (!noRkmMedis) {
+        setHistory([]);
+        setInpatientHistory([]);
+        setRalanHasMore(false);
+        setRanapHasMore(false);
+        return;
+      }
+
+      const ralanMetaRes = await api.master.list('reg_periksa', {
+        page: 1,
+        per_page: 1,
+        s: noRkmMedis,
+        col: 'no_rkm_medis',
+      });
+
+      const ralanMeta = (ralanMetaRes.data as any)?.meta || {};
+      const ralanTotalRecords = typeof ralanMeta?.total === 'number' ? ralanMeta.total : 0;
+      const computedRalanLastPage = Math.max(1, Math.ceil(ralanTotalRecords / ralanPerPage));
+
+      const patientNoRawatRes = await api.master.list('reg_periksa', {
+        page: 1,
+        per_page: Math.min(ralanTotalRecords || 0, 5000) || 1,
+        s: noRkmMedis,
+        col: 'no_rkm_medis',
+      });
+      const patientNoRawatRows = (patientNoRawatRes.data as any)?.data || [];
+      const patientNoRawatSet = new Set<string>(
+        (Array.isArray(patientNoRawatRows) ? patientNoRawatRows : [])
+          .map((v: any) => String(v?.no_rawat || ''))
+          .filter(Boolean)
+      );
+      setPatientNoRawatKeys(Array.from(patientNoRawatSet));
+
+      const ranapMetaPromise = allowRanap
+        ? api.master.list('kamar_inap', { page: 1, per_page: 1 })
+        : Promise.resolve({ data: { data: [], meta: { total: 0 } } } as any);
+
+      const [historyRes, dokterRes, poliRes, ranapMetaRes, kamarRes, bangsalRes] = await Promise.all([
+        api.master.list('reg_periksa', { page: computedRalanLastPage, per_page: ralanPerPage, s: noRkmMedis, col: 'no_rkm_medis' }),
         api.master.list('dokter'),
         api.master.list('poliklinik'),
-        api.master.list('kamar_inap'),
+        ranapMetaPromise,
         api.master.list('kamar'),
-        api.master.list('bangsal')
+        api.master.list('bangsal'),
       ]);
 
-      const ralanData = historyRes.data.data || [];
-      const ranapRawData = ranapRes.data.data || [];
+      const ralanData = (historyRes.data as any)?.data || [];
       const doctors = dokterRes.data.data || [];
       const clinics = poliRes.data.data || [];
       const rooms = kamarRes.data.data || [];
@@ -69,32 +121,186 @@ export default function RiwayatScreen() {
       setWardMap(wMap);
 
       // 1. Process Rawat Jalan (Sort by date)
-      const sortedRalan = ralanData.sort((a: any, b: any) => {
+      const sortedRalan = (Array.isArray(ralanData) ? ralanData : []).sort((a: any, b: any) => {
         const dateA = new Date(`${a.tgl_registrasi}T${a.jam_reg}`);
         const dateB = new Date(`${b.tgl_registrasi}T${b.jam_reg}`);
         return dateB.getTime() - dateA.getTime();
       });
       setHistory(sortedRalan);
+      setRalanTotal(ralanTotalRecords);
+      setRalanLastPage(computedRalanLastPage);
+      setRalanPage(computedRalanLastPage);
+      setRalanHasMore(computedRalanLastPage > 1);
 
       // 2. Process Rawat Inap (Filter by patient and join data)
-      // Extract all valid 'no_rawat' for this patient from reg_periksa
-      const patientNoRawat = new Set(ralanData.map((v: any) => v.no_rawat));
+      if (!allowRanap || patientNoRawatSet.size === 0) {
+        setInpatientHistory([]);
+        setRanapTotal(0);
+        setRanapLastPage(1);
+        setRanapPage(1);
+        setRanapHasMore(false);
+      } else {
+        const ranapMeta = (ranapMetaRes.data as any)?.meta || {};
+        const ranapTotalRecords = typeof ranapMeta?.total === 'number' ? ranapMeta.total : 0;
+        const computedRanapLastPage = Math.max(1, Math.ceil(ranapTotalRecords / ranapPerPage));
 
-      const myRanap = ranapRawData.filter((stay: any) =>
-        patientNoRawat.has(stay.no_rawat)
-      ).sort((a: any, b: any) => {
-        // Sort by check-in date descending
-        const dateA = new Date(`${a.tgl_masuk}T${a.jam_masuk}`);
-        const dateB = new Date(`${b.tgl_masuk}T${b.jam_masuk}`);
-        return dateB.getTime() - dateA.getTime();
-      });
+        let pageCursor = computedRanapLastPage;
+        let filtered: any[] = [];
+        let attempts = 0;
 
-      setInpatientHistory(myRanap);
+        while (filtered.length === 0 && pageCursor >= 1 && attempts < 10) {
+          const pageRes = await api.master.list('kamar_inap', { page: pageCursor, per_page: ranapPerPage });
+          const rows = (pageRes.data as any)?.data || [];
+          const arr = Array.isArray(rows) ? rows : [];
+          filtered = arr.filter((row: any) => patientNoRawatSet.has(String(row?.no_rawat || '')));
+          if (filtered.length === 0) {
+            pageCursor -= 1;
+            attempts += 1;
+          }
+        }
+
+        const sortedRanap = filtered.sort((a: any, b: any) => {
+          const dateA = new Date(`${a.tgl_masuk}T${a.jam_masuk}`);
+          const dateB = new Date(`${b.tgl_masuk}T${b.jam_masuk}`);
+          return dateB.getTime() - dateA.getTime();
+        });
+
+        setInpatientHistory(sortedRanap);
+        setRanapTotal(ranapTotalRecords);
+        setRanapLastPage(computedRanapLastPage);
+        setRanapPage(Math.max(1, pageCursor));
+        setRanapHasMore(pageCursor > 1);
+      }
 
     } catch (error) {
       console.error('Error fetching visit details:', error);
     } finally {
       setLoading(false);
+    }
+  };
+
+  const fetchMoreRalan = async () => {
+    if (!session?.no_rkm_medis) return;
+    if (loading || ralanLoadingMore || !ralanHasMore) return;
+    if (activeTab !== 'ralan') return;
+
+    setRalanLoadingMore(true);
+    const nextPage = ralanPage - 1;
+    try {
+      if (nextPage < 1) {
+        setRalanHasMore(false);
+        return;
+      }
+
+      const res = await api.master.list('reg_periksa', {
+        page: nextPage,
+        per_page: ralanPerPage,
+        s: session.no_rkm_medis,
+        col: 'no_rkm_medis',
+      });
+      const nextRows = (res.data as any)?.data || [];
+      const nextArr = Array.isArray(nextRows) ? nextRows : [];
+      if (nextArr.length === 0) {
+        setRalanHasMore(false);
+        return;
+      }
+
+      setHistory((prev) => {
+        const prevArr = Array.isArray(prev) ? prev : [];
+        const merged = [...prevArr, ...nextArr];
+        const seen = new Set<string>();
+        const unique = merged.filter((row: any) => {
+          const key = String(row?.no_rawat || '');
+          if (!key) return true;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        unique.sort((a: any, b: any) => {
+          const dateA = new Date(`${a.tgl_registrasi}T${a.jam_reg}`);
+          const dateB = new Date(`${b.tgl_registrasi}T${b.jam_reg}`);
+          return dateB.getTime() - dateA.getTime();
+        });
+        return unique;
+      });
+
+      setPatientNoRawatKeys((prev) => {
+        const base = new Set(prev);
+        nextArr.forEach((row: any) => {
+          const key = String(row?.no_rawat || '');
+          if (key) base.add(key);
+        });
+        return Array.from(base);
+      });
+
+      setRalanPage(nextPage);
+      setRalanHasMore(nextPage > 1);
+    } catch (error) {
+      console.error('Error fetching more rawat jalan:', error);
+    } finally {
+      setRalanLoadingMore(false);
+    }
+  };
+
+  const fetchMoreRanap = async () => {
+    if (!session?.no_rkm_medis) return;
+    if (loading || ranapLoadingMore || !ranapHasMore) return;
+    if (activeTab !== 'ranap') return;
+    if (!isRawatInapEnabled(Platform.OS)) return;
+    if (patientNoRawatKeys.length === 0) return;
+
+    setRanapLoadingMore(true);
+    let nextPage = ranapPage - 1;
+    try {
+      if (nextPage < 1) {
+        setRanapHasMore(false);
+        return;
+      }
+
+      const allowSet = new Set(patientNoRawatKeys);
+      let filtered: any[] = [];
+      let attempts = 0;
+
+      while (filtered.length === 0 && nextPage >= 1 && attempts < 10) {
+        const res = await api.master.list('kamar_inap', { page: nextPage, per_page: ranapPerPage });
+        const rows = (res.data as any)?.data || [];
+        const arr = Array.isArray(rows) ? rows : [];
+        filtered = arr.filter((row: any) => allowSet.has(String(row?.no_rawat || '')));
+        if (filtered.length === 0) {
+          nextPage -= 1;
+          attempts += 1;
+        }
+      }
+
+      if (filtered.length === 0) {
+        setRanapHasMore(false);
+        return;
+      }
+
+      setInpatientHistory((prev) => {
+        const prevArr = Array.isArray(prev) ? prev : [];
+        const merged = [...prevArr, ...filtered];
+        const seen = new Set<string>();
+        const unique = merged.filter((row: any) => {
+          const key = `${String(row?.no_rawat || '')}|${String(row?.tgl_masuk || '')}|${String(row?.jam_masuk || '')}|${String(row?.kd_kamar || '')}`;
+          if (seen.has(key)) return false;
+          seen.add(key);
+          return true;
+        });
+        unique.sort((a: any, b: any) => {
+          const dateA = new Date(`${a.tgl_masuk}T${a.jam_masuk}`);
+          const dateB = new Date(`${b.tgl_masuk}T${b.jam_masuk}`);
+          return dateB.getTime() - dateA.getTime();
+        });
+        return unique;
+      });
+
+      setRanapPage(nextPage);
+      setRanapHasMore(nextPage > 1);
+    } catch (error) {
+      console.error('Error fetching more rawat inap:', error);
+    } finally {
+      setRanapLoadingMore(false);
     }
   };
 
@@ -311,6 +517,16 @@ export default function RiwayatScreen() {
           keyExtractor={(item, index) => (item.no_rawat || index).toString() + index}
           contentContainerStyle={styles.listContainer}
           showsVerticalScrollIndicator={false}
+          onEndReached={activeTab === 'ralan' ? fetchMoreRalan : fetchMoreRanap}
+          onEndReachedThreshold={0.4}
+          ListFooterComponent={
+            (activeTab === 'ralan' && ralanLoadingMore) || (activeTab === 'ranap' && ranapLoadingMore) ? (
+              <View style={styles.footerLoader}>
+                <ActivityIndicator size="small" color="#62B986" />
+                <Text style={styles.footerLoaderText}>Memuat data...</Text>
+              </View>
+            ) : null
+          }
           ListEmptyComponent={() => (
             <View style={styles.emptyContainer}>
               <Image
@@ -414,6 +630,18 @@ const styles = StyleSheet.create({
   listContainer: {
     padding: 16,
     paddingBottom: 100,
+  },
+  footerLoader: {
+    paddingTop: 6,
+    paddingBottom: 18,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  footerLoaderText: {
+    marginTop: 8,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#666',
   },
   card: {
     backgroundColor: '#FFF',

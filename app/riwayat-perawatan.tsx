@@ -29,7 +29,9 @@ export default function RiwayatPerawatanScreen() {
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [details, setDetails] = useState<any>(null);
-  const [expandedSection, setExpandedSection] = useState<string | null>('soap');
+  const [openSections, setOpenSections] = useState<Record<string, boolean>>({
+    soap: true,
+  });
   const [aturanPakaiMap, setAturanPakaiMap] = useState<Record<string, string>>({});
   const [thumbnailHeaders, setThumbnailHeaders] = useState<Record<string, string>>({});
   const [miniPacsThumbnailMap, setMiniPacsThumbnailMap] = useState<Record<string, string>>({});
@@ -76,7 +78,10 @@ export default function RiwayatPerawatanScreen() {
   };
 
   const toggleSection = (section: string) => {
-    setExpandedSection(expandedSection === section ? null : section);
+    setOpenSections((prev) => ({
+      ...prev,
+      [section]: !prev?.[section],
+    }));
   };
 
   const openImagePreview = (imageUrl: string) => {
@@ -318,7 +323,7 @@ export default function RiwayatPerawatanScreen() {
           </View>
         )}
       </View>
-      {expandedSection === sectionKey ? <ChevronUp size={20} color="#999" /> : <ChevronDown size={20} color="#999" />}
+      {openSections?.[sectionKey] ? <ChevronUp size={20} color="#999" /> : <ChevronDown size={20} color="#999" />}
     </TouchableOpacity>
   );
 
@@ -369,7 +374,7 @@ export default function RiwayatPerawatanScreen() {
         {soapData && soapData.length > 0 && (
           <View style={styles.sectionContainer}>
             {renderSectionHeader('Pemeriksaan (SOAP)', <Thermometer size={18} color="#FFF" />, 'soap')}
-            {expandedSection === 'soap' && (
+            {openSections?.soap && (
               <View style={styles.sectionBody}>
                 {soapData.map((p: any, idx: number) => (
                   <View key={idx} style={styles.soapItem}>
@@ -406,7 +411,7 @@ export default function RiwayatPerawatanScreen() {
         {diagnosisData && diagnosisData.length > 0 && (
           <View style={styles.sectionContainer}>
             {renderSectionHeader('Diagnosa (ICD-10)', <FileText size={18} color="#FFF" />, 'diagnosa', diagnosisData.length)}
-            {expandedSection === 'diagnosa' && (
+            {openSections?.diagnosa && (
               <View style={styles.sectionBody}>
                 {diagnosisData.map((d: any, idx: number) => (
                   <View key={idx} style={styles.listRow}>
@@ -423,7 +428,7 @@ export default function RiwayatPerawatanScreen() {
         {icd9Data.length > 0 && (
           <View style={styles.sectionContainer}>
             {renderSectionHeader('Prosedur (ICD-9)', <FileText size={18} color="#FFF" />, 'icd9', icd9Data.length)}
-            {expandedSection === 'icd9' && (
+            {openSections?.icd9 && (
               <View style={styles.sectionBody}>
                 {icd9Data.map((p: any, idx: number) => (
                   <View key={idx} style={styles.listRow}>
@@ -442,7 +447,7 @@ export default function RiwayatPerawatanScreen() {
         {actionData && actionData.length > 0 && (
           <View style={styles.sectionContainer}>
             {renderSectionHeader('Prosedur & Tindakan', <HeartPulse size={18} color="#FFF" />, 'actions', actionData.length)}
-            {expandedSection === 'actions' && (
+            {openSections?.actions && (
               <View style={styles.sectionBody}>
                 {actionData.map((a: any, idx: number) => (
                   <View key={idx} style={styles.actionRow}>
@@ -467,7 +472,7 @@ export default function RiwayatPerawatanScreen() {
         {prescriptionData && prescriptionData.length > 0 && (
           <View style={styles.sectionContainer}>
             {renderSectionHeader('Resep Obat', <Pill size={18} color="#FFF" />, 'obat', prescriptionData.length)}
-            {expandedSection === 'obat' && (
+            {openSections?.obat && (
               <View style={styles.sectionBody}>
                 {prescriptionData.map((o: any, idx: number) => (
                   <View key={idx} style={styles.obatItem}>
@@ -497,7 +502,7 @@ export default function RiwayatPerawatanScreen() {
         {(labData?.length > 0 || radData?.length > 0) && (
           <View style={styles.sectionContainer}>
             {renderSectionHeader('Layanan Penunjang', <Microscope size={18} color="#FFF" />, 'penunjang')}
-            {expandedSection === 'penunjang' && (
+            {openSections?.penunjang && (
               <View style={styles.sectionBody}>
                 {labData?.map((l: any, idx: number) => (
                   <View key={`lab-${idx}`} style={styles.penunjangItem}>

@@ -41,44 +41,36 @@ apiClient.interceptors.request.use(
      */
     const authUsername = await AsyncStorage.getItem('auth_username');
     const authPassword = await AsyncStorage.getItem('auth_password');
-    const isRawatJalanCreate = config.url?.includes(`${API_ADMIN}/rawat_jalan/create`);
     const isMasterSave = config.url?.includes(`${API_ADMIN}/master/save/`);
     const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData;
 
-    if (authUsername && authPassword && !isRawatJalanCreate) {
+    if (authUsername && authPassword) {
       const method = config.method?.toLowerCase();
-      if (method === 'get' || isMasterSave) {
+      if (method === 'get' || method === 'delete' || isMasterSave) {
         config.params = {
           ...config.params,
           username: authUsername,
           password: authPassword,
         };
-      } else if (isFormData) {
+      } else if (method === 'post' || method === 'put' || method === 'patch') {
+        /**
+         * Jangan suntik username/password ke body JSON karena beberapa endpoint backend
+         * akan menganggapnya kolom tabel saat INSERT/UPDATE (contoh: booking/daftar),
+         * sehingga memicu error "Unknown column 'username'".
+         * Untuk request mutasi data, kirim sebagai query params.
+         */
+        config.params = {
+          ...config.params,
+          username: authUsername,
+          password: authPassword,
+        };
+      }
+
+      if (isFormData) {
         // Biarkan browser/axios membentuk multipart boundary otomatis.
         if (config.headers) {
           delete config.headers['Content-Type'];
         }
-        const hasUsername = typeof config.data.get === 'function' && config.data.get('username');
-        const hasPassword = typeof config.data.get === 'function' && config.data.get('password');
-        if (!hasUsername) config.data.append('username', authUsername);
-        if (!hasPassword) config.data.append('password', authPassword);
-      } else if (config.data) {
-        try {
-          const body = typeof config.data === 'string' ? JSON.parse(config.data) : config.data;
-          config.data = {
-            ...body,
-            username: authUsername,
-            password: authPassword,
-          };
-        } catch (e) {
-          // Fallback if data is not JSON or already stringified in a way that can't be parsed easily
-          // But usually axios handles objects automatically
-        }
-      } else {
-        config.data = {
-          username: authUsername,
-          password: authPassword,
-        };
       }
     }
 
