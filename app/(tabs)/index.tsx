@@ -1,4 +1,4 @@
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, RefreshControl, Dimensions, Platform } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { BlurView } from 'expo-blur';
 import { Stethoscope, ClipboardList, Users, Bed, Calendar, ChevronRight, Bell, Beaker, Radiation, Pill, LayoutGrid, CalendarDays, History, Hotel, UserPlus } from 'lucide-react-native';
@@ -7,6 +7,7 @@ import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-ico
 import { router } from 'expo-router';
 import { useEffect, useState } from 'react';
 import { api } from '@/lib/api';
+import { isRawatInapEnabled } from '@/lib/env';
 
 const { width } = Dimensions.get('window');
 const DEFAULT_ARTICLE_IMAGES = [
@@ -175,6 +176,27 @@ const resolveArticleImage = (candidate: any, fallbackIndex: number): number | { 
   return DEFAULT_ARTICLE_IMAGES[fallbackIndex % DEFAULT_ARTICLE_IMAGES.length];
 };
 
+const extractWebsiteNewsList = (payload: any): any[] => {
+  if (Array.isArray(payload)) return payload;
+  if (!payload || typeof payload !== 'object') return [];
+
+  const firstLevelCandidates = [payload?.data, payload?.results, payload?.items, payload?.rows];
+  for (const candidate of firstLevelCandidates) {
+    if (Array.isArray(candidate)) return candidate;
+  }
+
+  for (const candidate of firstLevelCandidates) {
+    if (!candidate || typeof candidate !== 'object') continue;
+    const nested = (candidate as any)?.data ?? (candidate as any)?.results ?? (candidate as any)?.items ?? (candidate as any)?.rows;
+    if (Array.isArray(nested)) return nested;
+  }
+
+  const deepData = (payload as any)?.data?.data;
+  if (Array.isArray(deepData)) return deepData;
+
+  return [];
+};
+
 const mapToHomeArticle = (detailData: any, fallbackData: any, index: number): HomeArticle => {
   const source = detailData || fallbackData || {};
   const idValue =
@@ -207,6 +229,7 @@ export default function HomeScreen() {
   const [brokenArticleImages, setBrokenArticleImages] = useState<Record<string, boolean>>({});
   const [homeAvatar, setHomeAvatar] = useState<{ uri: string } | null>(null);
   const [unreadNotifications, setUnreadNotifications] = useState(0);
+  const [disableWebRanapCount, setDisableWebRanapCount] = useState(false);
 
   const isLoggedIn = !!session?.no_rkm_medis;
   const displayName = session?.nm_pasien || session?.no_rkm_medis || 'Tamu';
@@ -224,21 +247,44 @@ export default function HomeScreen() {
       const today = new Date().toISOString().split('T')[0];
 
       // Fetch Ralan Count (Today)
-      const ralanRes = await api.rawatJalan.list({
-        tgl_awal: today,
-        tgl_akhir: today,
-        per_page: 1
-      });
-      const ralanTotal = (ralanRes.data as any)?.meta?.total || 0;
-      setRalanCount(ralanTotal);
+      try {
+        const ralanRes = await api.rawatJalan.list({
+          tgl_awal: today,
+          tgl_akhir: today,
+          per_page: 1,
+        });
+        const ralanTotal = (ralanRes.data as any)?.meta?.total || 0;
+        setRalanCount(ralanTotal);
+      } catch (countError) {
+        console.error('Error fetching ralan count:', countError);
+        setRalanCount(0);
+      }
 
       // Fetch Ranap Count
-      const ranapRes = await api.rawatInap.list({
-        stts_pulang: '-',
-        per_page: 1
-      });
-      const ranapTotal = (ranapRes.data as any)?.meta?.total || 0;
-      setRanapCount(ranapTotal);
+      try {
+        const allowRanap = isRawatInapEnabled(Platform.OS);
+        if (!allowRanap) {
+          setRanapCount(0);
+        } else if (Platform.OS === 'web' && disableWebRanapCount) {
+          setRanapCount(0);
+        } else {
+        const ranapRes = await api.rawatInap.list({
+          stts_pulang: '-',
+          per_page: 1,
+        });
+        const ranapTotal = (ranapRes.data as any)?.meta?.total || 0;
+        setRanapCount(ranapTotal);
+        }
+      } catch (countError) {
+        const status = (countError as any)?.response?.status;
+        if (Platform.OS === 'web' && status === 404) {
+          setDisableWebRanapCount(true);
+          setRanapCount(0);
+        } else {
+          console.error('Error fetching ranap count:', countError);
+          setRanapCount(0);
+        }
+      }
 
       // Fetch Jadwal Dokter Hari Ini (mengikuti pola di halaman jadwal-dokter)
       try {
@@ -309,11 +355,29 @@ export default function HomeScreen() {
           start: 0,
           length: 3,
           search: '',
+          page: 1,
+          per_page: 3,
+          s: '',
         });
 
-        const listPayload = (websiteListRes.data as any)?.data ?? (websiteListRes.data as any)?.results ?? [];
-        const newsList = Array.isArray(listPayload) ? listPayload.slice(0, 3) : [];
+        const primaryPayload = (websiteListRes.data as any) ?? {};
+        console.log(
+          'website.list payload keys',
+          primaryPayload && typeof primaryPayload === 'object' ? Object.keys(primaryPayload) : typeof primaryPayload
+        );
+        const primaryData = (primaryPayload as any)?.data;
+        if (primaryData && typeof primaryData === 'object' && !Array.isArray(primaryData)) {
+          console.log('website.list payload.data keys', Object.keys(primaryData));
+        }
+        let listPayload = extractWebsiteNewsList(primaryPayload);
 
+        if (listPayload.length === 0) {
+          const fallbackRes = await api.website.list({ page: 1, per_page: 3, s: '' });
+          listPayload = extractWebsiteNewsList((fallbackRes.data as any) ?? {});
+        }
+
+        const newsList = listPayload.slice(0, 3);
+        console.log('newsList', newsList);
         const newsWithDetail = await Promise.all(
           newsList.map(async (item: any, index: number) => {
             const newsId = item?.news_id || item?.id || item?.id_website;

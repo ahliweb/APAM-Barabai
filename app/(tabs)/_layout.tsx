@@ -4,6 +4,7 @@ import { Home, Stethoscope, ScanLine, ClipboardList, User, CalendarDays, History
 import { useState, useEffect } from 'react';
 import { api } from '@/lib/api';
 import { BlurView } from 'expo-blur';
+import { isRawatInapEnabled } from '@/lib/env';
 
 function TabBarIcon({ name, color, focused }: { name: string; color: string; focused: boolean }) {
   switch (name) {
@@ -29,40 +30,73 @@ function TabBarIcon({ name, color, focused }: { name: string; color: string; foc
 export default function TabLayout() {
   const [ralanCount, setRalanCount] = useState(0);
   const [ranapCount, setRanapCount] = useState(0);
+  const [disableWebCounts, setDisableWebCounts] = useState(false);
 
   const fetchCounts = async () => {
+    if (Platform.OS === 'web' && disableWebCounts) return;
+
     try {
       const today = new Date().toISOString().split('T')[0];
+      const allowRanap = isRawatInapEnabled(Platform.OS);
 
       // Fetch Ralan Count (Today)
-      const ralanRes = await api.rawatJalan.list({
-        tgl_awal: today,
-        tgl_akhir: today,
-        per_page: 1
-      });
-      const ralanTotal = (ralanRes.data as any)?.meta?.total || 0;
-      setRalanCount(ralanTotal);
+      try {
+        const ralanRes = await api.rawatJalan.list({
+          tgl_awal: today,
+          tgl_akhir: today,
+          per_page: 1,
+        });
+        const ralanTotal = (ralanRes.data as any)?.meta?.total || 0;
+        setRalanCount(ralanTotal);
+      } catch (error) {
+        const status = (error as any)?.response?.status;
+        if (Platform.OS === 'web' && status === 404) {
+          setDisableWebCounts(true);
+          setRalanCount(0);
+          return;
+        }
+        console.error('Error fetching ralan count:', error);
+        setRalanCount(0);
+        if (Platform.OS === 'web') setDisableWebCounts(true);
+      }
 
       // Fetch Ranap Count
-      const ranapRes = await api.rawatInap.list({
-        stts_pulang: '-',
-        per_page: 100 // Fetch more to allow grouping locally
-      });
-      const ranapData = (ranapRes.data as any)?.data || [];
+      try {
+        if (!allowRanap) {
+          setRanapCount(0);
+          return;
+        }
+        const ranapRes = await api.rawatInap.list({
+          stts_pulang: '-',
+          per_page: 100,
+        });
+        const ranapData = (ranapRes.data as any)?.data || [];
 
-      const ranapPindahRes = await api.rawatInap.list({
-        stts_pulang: 'Pindah Kamar',
-        per_page: 100 // Fetch more to allow grouping locally
-      });
-      const ranapPindahData = (ranapPindahRes.data as any)?.data || [];
+        const ranapPindahRes = await api.rawatInap.list({
+          stts_pulang: 'Pindah Kamar',
+          per_page: 100,
+        });
+        const ranapPindahData = (ranapPindahRes.data as any)?.data || [];
 
-      // Combine and Group by no_rawat
-      const allRanap = [...ranapData, ...ranapPindahData];
-      const uniqueRanap = new Set(allRanap.map((item: any) => item.no_rawat));
-
-      setRanapCount(uniqueRanap.size);
+        const allRanap = [...ranapData, ...ranapPindahData];
+        const uniqueRanap = new Set(allRanap.map((item: any) => item.no_rawat));
+        setRanapCount(uniqueRanap.size);
+      } catch (error) {
+        const status = (error as any)?.response?.status;
+        if (Platform.OS === 'web' && status === 404) {
+          setDisableWebCounts(true);
+          setRanapCount(0);
+          return;
+        }
+        console.error('Error fetching ranap count:', error);
+        setRanapCount(0);
+        if (Platform.OS === 'web') setDisableWebCounts(true);
+      }
     } catch (error) {
       console.error('Error fetching counts:', error);
+      setRalanCount(0);
+      setRanapCount(0);
+      if (Platform.OS === 'web') setDisableWebCounts(true);
     }
   };
 

@@ -15,6 +15,7 @@ const resolvePersonalPhoto = (photoValue: string): string | null => {
   if (normalized.startsWith('http://') || normalized.startsWith('https://')) return normalized;
 
   const baseUrl = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/$/, '');
+
   if (!baseUrl) return null;
 
   const relative = normalized.startsWith('/') ? normalized.slice(1) : normalized;
@@ -181,7 +182,8 @@ export default function ProfileScreen() {
       let lastUploadError = '';
       let finalSavedAvatar = '';
       const fields = ['file', 'webcam', 'photo', 'foto', 'gambar'];
-      const rawUrl = `${(process.env.EXPO_PUBLIC_API_URL || '').replace(/\/$/, '')}/admin/api/master/save/personal_pasien`;
+      const baseUrlAdmin = (process.env.EXPO_PUBLIC_API_ADMIN || '').replace(/\/$/, '');
+      const rawUrl = `${(process.env.EXPO_PUBLIC_API_URL || '').replace(/\/$/, '')}/${baseUrlAdmin}/api/master/save/personal_pasien`;
       const token = await AsyncStorage.getItem('auth_token');
       const authUsername = (await AsyncStorage.getItem('auth_username')) || '';
       const authPassword = (await AsyncStorage.getItem('auth_password')) || '';

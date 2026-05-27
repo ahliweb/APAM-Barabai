@@ -2,7 +2,8 @@ import axios from 'axios';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // ─── Konfigurasi Dasar (dari .env) ───────────────────────────────────────────
-const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://demo.mlite.id';
+const API_URL = process.env.EXPO_PUBLIC_API_URL || 'https://atilamedika.com';
+const API_ADMIN = process.env.EXPO_PUBLIC_API_ADMIN || '';
 const API_KEY = process.env.EXPO_PUBLIC_API_KEY || '';
 const API_USERNAME = process.env.EXPO_PUBLIC_API_USERNAME || '';
 const API_PASSWORD = process.env.EXPO_PUBLIC_API_PASSWORD || '';
@@ -20,7 +21,7 @@ const apiClient = axios.create({
 apiClient.interceptors.request.use(
   async (config: any) => {
     // Endpoint login hanya butuh X-Api-Key (sudah di default headers)
-    if (config.url?.includes('/admin/api/login')) {
+    if (config.url?.includes(`${API_ADMIN}/api/login`)) {
       return config;
     }
 
@@ -40,8 +41,8 @@ apiClient.interceptors.request.use(
      */
     const authUsername = await AsyncStorage.getItem('auth_username');
     const authPassword = await AsyncStorage.getItem('auth_password');
-    const isRawatJalanCreate = config.url?.includes('/admin/api/rawat_jalan/create');
-    const isMasterSave = config.url?.includes('/admin/api/master/save/');
+    const isRawatJalanCreate = config.url?.includes(`${API_ADMIN}/rawat_jalan/create`);
+    const isMasterSave = config.url?.includes(`${API_ADMIN}/master/save/`);
     const isFormData = typeof FormData !== 'undefined' && config.data instanceof FormData;
 
     if (authUsername && authPassword && !isRawatJalanCreate) {
@@ -89,7 +90,7 @@ apiClient.interceptors.request.use(
 export default apiClient;
 
 // ─── Endpoints ────────────────────────────────────────────────────────────────
-const PREFIX = '/admin/api';
+const PREFIX = `${API_ADMIN}/api`;
 
 export const api = {
   // Authentication

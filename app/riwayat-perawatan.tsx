@@ -150,6 +150,7 @@ export default function RiwayatPerawatanScreen() {
   const radData = collectArrays(detailObj, ['periksa_radiologi', 'radiologi', 'periksa_rad']);
   const miniPacsData = collectArrays(detailObj, ['mini_pacs']);
   const apiBaseUrl = (process.env.EXPO_PUBLIC_API_URL || '').replace(/\/$/, '');
+  const apiBaseUrlAdmin = (process.env.EXPO_PUBLIC_API_ADMIN || '').replace(/\/$/, '');
   const previewBaseSize = Math.min(screenWidth - 24, screenHeight - 180);
   const previewContentSize = Math.max(220, Math.round(previewBaseSize * previewZoom));
 
@@ -233,7 +234,7 @@ export default function RiwayatPerawatanScreen() {
           const instanceId = firstInstance?.id;
           if (!instanceId) return;
 
-          const imageUrl = `${apiBaseUrl}/admin/api/mini_pacs/instancejpg/${instanceId}`;
+          const imageUrl = `${apiBaseUrl}/${apiBaseUrlAdmin}/api/mini_pacs/instancejpg/${instanceId}`;
           if (Platform.OS !== 'web') {
             nextMap[String(instanceId)] = imageUrl;
             return;
@@ -556,7 +557,7 @@ export default function RiwayatPerawatanScreen() {
                       const firstInstance = asArray(firstSeries?.instances)[0];
                       const instanceId = firstInstance?.id;
                       const rawImageUrl = instanceId && apiBaseUrl
-                        ? `${apiBaseUrl}/admin/api/mini_pacs/instancejpg/${instanceId}`
+                        ? `${apiBaseUrl}/${apiBaseUrlAdmin}/api/mini_pacs/instancejpg/${instanceId}`
                         : '';
                       const imageUrl = rawImageUrl.replace(/[`'"]/g, '').trim();
                       const resolvedImageUrl = (instanceId && miniPacsThumbnailMap[String(instanceId)]) || imageUrl;

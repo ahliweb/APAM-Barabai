@@ -36,16 +36,20 @@ Buat atau sesuaikan file `.env` di root project:
 
 ```env
 EXPO_PUBLIC_API_URL=https://demo.mlite.id
+EXPO_PUBLIC_API_ADMIN=admin
 EXPO_PUBLIC_API_KEY=YOUR_API_KEY_HERE
 EXPO_PUBLIC_API_USERNAME=admin
 EXPO_PUBLIC_API_PASSWORD=admin
+EXPO_PUBLIC_ENABLE_RAWAT_INAP=true
 ```
 
 Keterangan:
 
 - `EXPO_PUBLIC_API_URL`: base URL API backend.
+- `EXPO_PUBLIC_API_ADMIN`: admin prefix API (misal: `admin`).
 - `EXPO_PUBLIC_API_KEY`: API key yang valid.
 - `EXPO_PUBLIC_API_USERNAME` dan `EXPO_PUBLIC_API_PASSWORD`: kredensial sistem untuk login awal.
+- `EXPO_PUBLIC_ENABLE_RAWAT_INAP`: aktif/nonaktifkan fitur dan request Rawat Inap (set `false` jika modul rawat inap tidak tersedia di backend).
 
 ## Menjalankan Project (Lokal)
 
